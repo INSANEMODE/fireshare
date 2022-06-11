@@ -237,7 +237,7 @@ const CompactVideoCard = ({ video, openVideoHandler, alertHandler, cardWidth, au
                 </Grid>
               </Box>
             )}
-            <img
+            {/* <img
               src={`${
                 SERVED_BY === 'nginx'
                   ? `${URL}/_content/derived/${video.video_id}/poster.jpg`
@@ -251,8 +251,30 @@ const CompactVideoCard = ({ video, openVideoHandler, alertHandler, cardWidth, au
                 borderBottomLeftRadius: '6px',
                 borderTop: 'none',
               }}
+            /> */}
+            <video
+              style={{
+                width: cardWidth,
+                border: '1px solid #3399FFAE',
+                borderBottomRightRadius: '6px',
+                borderBottomLeftRadius: '6px',
+                borderTop: 'none',
+              }}
+              poster={`${
+                SERVED_BY === 'nginx'
+                  ? `${URL}/_content/derived/${video.video_id}/poster.jpg`
+                  : `${URL}/api/video/poster?id=${video.video_id}`
+              }`}
+              src={`${
+                SERVED_BY === 'nginx'
+                  ? `${URL}/_content/derived/${video.video_id}/boomerang-preview.webm`
+                  : `${URL}/api/video/poster?id=${video.video_id}&animated=true`
+              }`}
+              muted
+              autoPlay
+              loop
+              disablePictureInPicture
             />
-
             {hover && (
               <video
                 style={{
