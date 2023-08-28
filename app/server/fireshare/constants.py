@@ -14,5 +14,5 @@ DEFAULT_CONFIG = {
   }
 }
 
-SUPPORTED_FILE_TYPES = ['mp4', 'mov', 'webm']
-SUPPORTED_FILE_EXTENSIONS = ['.mp4', '.mov', '.webm']
+SUPPORTED_FILE_TYPES = ['video/mp4', 'video/mov', 'video/webm', 'video/flv', 'video/H264', 'video/H265']
+SUPPORTED_FILE_EXTENSIONS = ['.mp4', '.mov', '.webm', '.flv', '.mkv']

@@ -10,16 +10,60 @@ from flask_login import current_user, login_required
 from flask_cors import CORS
 from sqlalchemy.sql import text
 from pathlib import Path
+from werkzeug.utils import secure_filename
+import subprocess
+from datetime import datetime
+import uuid
+
+from .constants import SUPPORTED_FILE_EXTENSIONS
 
 
 from . import db
 from .models import Video, VideoInfo, VideoView
-from .constants import SUPPORTED_FILE_TYPES
+from .constants import SUPPORTED_FILE_TYPES, SUPPORTED_FILE_EXTENSIONS
 
 templates_path = os.environ.get('TEMPLATE_PATH') or 'templates'
 api = Blueprint('api', __name__, template_folder=templates_path)
 
 CORS(api, supports_credentials=True)
+
+def run_ffmpeg_with_progress(input_path, output_path, progress_callback=None):
+    paths = current_app.config['PATHS']
+    progress_file_name = f"{paths['data']}/progress_{uuid.uuid4().hex}.txt"  # Generate a random progress file name
+    command = [
+        "ffmpeg",
+        "-y",  # Overwrite output file if it already exists
+        "-i", input_path,
+        "-progress", progress_file_name,  # Output progress information to a file
+        output_path
+    ]
+
+    # Run FFmpeg command
+    process = subprocess.Popen(command, stderr=subprocess.PIPE)
+    
+    # Read the progress file and extract the progress value
+    while process.poll() is None:
+        if os.path.exists(progress_file_name):
+            with open(progress_file_name, "r") as progress_file:
+                progress_data = progress_file.read()
+                progress = re.findall(r"progress=([\d.]+)", progress_data)
+                if progress:
+                    progress_percentage = float(progress[0])  # Convert progress to float
+                    if progress_callback:
+                        progress_callback(progress_percentage)
+
+    # Clean up progress file
+    subprocess.run(["rm", progress_file_name])
+
+    # Check the exit code of the process
+    if process.returncode != 0:
+        raise Exception("FFmpeg conversion failed")
+
+# Example callback function
+def update_upload_progress(progress):
+    # Update the upload card with the progress percentage
+    print(f"Conversion progress: {progress:.2f}%", flush=True)
+
 
 def get_video_path(id, subid=None):
     video = Video.query.filter_by(video_id=id).first()
@@ -244,27 +288,75 @@ def public_upload_video():
     if not config['app_config']['allow_public_upload']:
         logging.warn("A public upload attempt was made but public uploading is disabled")
         return Response(status=401)
+    if "file" not in request.files:
+        return jsonify({"error": "No file part"}), 400
 
-    if 'file' not in request.files:
-        return Response(status=400)
-    file = request.files['file']
-    if file.filename == '':
-        return Response(status=400)
-    filename = file.filename
-    filetype = file.filename.split('.')[-1]
-    if not filetype in SUPPORTED_FILE_TYPES:
-        return Response(status=400)
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+
+     
+    upload_token = request.form.get("uploadToken")
+    chunk_number = int(request.form.get("chunkNumber"))
+    total_chunks = int(request.form.get("totalChunks"))
+    OGFileName = request.form.get("OGFileName")
+    print(f"OGFileName: {OGFileName}", flush=True)
+    print(f"filename: {file.filename}", flush=True)
+    filename = secure_filename(file.filename)
+    print(f"secure filename: {filename}", flush=True)
+    name_no_type = Path(filename).stem
+    og_name_no_type = Path(OGFileName).stem
+    print(f"name_no_type: {name_no_type}", flush=True)
+    file_extension = Path(filename).suffix
+    og_file_extension = Path(OGFileName).suffix
+
+    if f".{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
+        return jsonify({"error": "Unsupported Media Type"}), 415
+    if f"{file.mimetype}".lower() not in SUPPORTED_FILE_TYPES:
+        return jsonify({"error": "Unsupported Media Type"}), 415
     upload_directory = paths['video'] / config['app_config']['public_upload_folder_name']
     if not os.path.exists(upload_directory):
         os.makedirs(upload_directory)
-    save_path = os.path.join(upload_directory, filename)
-    if (os.path.exists(save_path)):
-        name_no_type = ".".join(filename.split('.')[0:-1])
-        uid = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
-        save_path = os.path.join(paths['video'], config['app_config']['public_upload_folder_name'], f"{name_no_type}-{uid}.{filetype}")
-    file.save(save_path)
-    Popen("fireshare bulk-import", shell=True)
-    return Response(status=201)
+    save_path = os.path.join(upload_directory, upload_token)
+
+    # Save the uploaded chunk
+    chunk_path = f"{save_path}_{chunk_number}"
+    file.save(chunk_path)
+
+    # Check if all chunks have been uploaded
+    if chunk_number == total_chunks - 1:
+        # Merge the chunks into a single MP4 file
+        merged_filename = secure_filename(OGFileName)
+        merged_path = os.path.join(upload_directory, merged_filename)
+        if os.path.exists(merged_path):
+            current_datetime = datetime.now().strftime("%H-%M-%S")
+            str_current_datetime = str(current_datetime)
+            merged_path = os.path.join(upload_directory, f"{str_current_datetime}-{merged_filename}")
+        with open(merged_path, "ab") as merged_file:
+            for i in range(total_chunks):
+                chunk_path = f"{save_path}_{i}"
+                with open(chunk_path, "rb") as chunk_file:
+                    merged_file.write(chunk_file.read())
+                os.remove(chunk_path)
+
+        # Optional: Convert the merged file to a different format if needed
+        if og_file_extension != "mp4":
+
+            converted_path = os.path.join(upload_directory, f"{og_name_no_type}.mp4")
+            if os.path.exists(converted_path):
+                current_datetime = datetime.now().strftime("%H-%M-%S")
+                str_current_datetime = str(current_datetime)
+                converted_path = os.path.join(upload_directory, f"{og_name_no_type}-{str_current_datetime}.mp4")
+            print(f"converted_path: {converted_path}", flush=True)
+            run_ffmpeg_with_progress(merged_path, converted_path, progress_callback=update_upload_progress)
+            os.remove(merged_path)
+            merged_path = converted_path
+        manual_scan()
+        return jsonify({"message": "File uploaded successfully", "file_path": merged_path}), 200
+    else:
+        return jsonify({"message": "Chunk uploaded successfully"}), 200
+
 
 @api.route('/api/upload', methods=['POST'])
 @login_required
@@ -276,26 +368,71 @@ def upload_video():
         except:
             return Response(status=500, response="Invalid or corrupt config file")
         configfile.close()
-    if 'file' not in request.files:
-        return Response(status=400)
-    file = request.files['file']
-    if file.filename == '':
-        return Response(status=400)
-    filename = file.filename
-    filetype = file.filename.split('.')[-1]
-    if not filetype in SUPPORTED_FILE_TYPES:
-        return Response(status=400)
+    if "file" not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+    upload_token = request.form.get("uploadToken")
+    chunk_number = int(request.form.get("chunkNumber"))
+    total_chunks = int(request.form.get("totalChunks"))
+    OGFileName = request.form.get("OGFileName")
+    print(f"OGFileName: {OGFileName}", flush=True)
+    print(f"filename: {file.filename}", flush=True)
+    filename = secure_filename(file.filename)
+    print(f"secure filename: {filename}", flush=True)
+    name_no_type = Path(filename).stem
+    og_name_no_type = Path(OGFileName).stem
+    print(f"name_no_type: {name_no_type}", flush=True)
+    file_extension = Path(filename).suffix
+    og_file_extension = Path(OGFileName).suffix
+    if f".{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
+        return jsonify({"error": f"Unsupported Media Type: .{og_file_extension}"}), 415
+    if f"{file.mimetype}".lower() not in SUPPORTED_FILE_TYPES:
+        return jsonify({"error": f"Unsupported Media Type: {file.mimetype}"}), 415
     upload_directory = paths['video'] / config['app_config']['admin_upload_folder_name']
     if not os.path.exists(upload_directory):
         os.makedirs(upload_directory)
-    save_path = os.path.join(upload_directory, filename)
-    if (os.path.exists(save_path)):
-        name_no_type = ".".join(filename.split('.')[0:-1])
-        uid = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
-        save_path = os.path.join(paths['video'], config['app_config']['admin_upload_folder_name'], f"{name_no_type}-{uid}.{filetype}")
-    file.save(save_path)
-    Popen("fireshare bulk-import", shell=True)
-    return Response(status=201)
+    save_path = os.path.join(upload_directory, upload_token)
+
+    # Save the uploaded chunk
+    chunk_path = f"{save_path}_{chunk_number}"
+    file.save(chunk_path)
+
+    # Check if all chunks have been uploaded
+    if chunk_number == total_chunks - 1:
+        # Merge the chunks into a single MP4 file
+        merged_filename = secure_filename(OGFileName)
+        merged_path = os.path.join(upload_directory, merged_filename)
+        if os.path.exists(merged_path):
+            current_datetime = datetime.now().strftime("%H-%M-%S")
+            str_current_datetime = str(current_datetime)
+            merged_path = os.path.join(upload_directory, f"{str_current_datetime}-{merged_filename}")
+        with open(merged_path, "ab") as merged_file:
+            for i in range(total_chunks):
+                chunk_path = f"{save_path}_{i}"
+                with open(chunk_path, "rb") as chunk_file:
+                    merged_file.write(chunk_file.read())
+                os.remove(chunk_path)
+
+        # Optional: Convert the merged file to a different format if needed
+        if og_file_extension != "mp4":
+
+            converted_path = os.path.join(upload_directory, f"{og_name_no_type}.mp4")
+            if os.path.exists(converted_path):
+                current_datetime = datetime.now().strftime("%H-%M-%S")
+                str_current_datetime = str(current_datetime)
+                converted_path = os.path.join(upload_directory, f"{og_name_no_type}-{str_current_datetime}.mp4")
+            print(f"converted_path: {converted_path}", flush=True)
+            run_ffmpeg_with_progress(merged_path, converted_path, progress_callback=update_upload_progress)
+            os.remove(merged_path)
+            merged_path = converted_path
+        manual_scan()
+        return jsonify({"message": "File uploaded successfully", "file_path": merged_path}), 200
+    else:
+        return jsonify({"message": "Chunk uploaded successfully"}), 200
 
 @api.route('/api/video')
 def get_video():

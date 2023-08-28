@@ -82,7 +82,7 @@ const UploadCard = ({ authenticated, feedView = false, publicUpload = false, car
               {!isSelected && (
                 <Input
                   id="icon-button-file"
-                  accept="video/mp4,video/webm,video/mov"
+                  accept="video/mp4,video/webm,video/mov, video/flv, video/H264, video/H265, video/AV1"
                   type="file"
                   name="file"
                   onChange={changeHandler}
