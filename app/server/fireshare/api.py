@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 import subprocess
 from datetime import datetime
 import uuid
+import mimetypes
 
 from .constants import SUPPORTED_FILE_EXTENSIONS
 
@@ -305,15 +306,19 @@ def public_upload_video():
     print(f"filename: {file.filename}", flush=True)
     filename = secure_filename(file.filename)
     print(f"secure filename: {filename}", flush=True)
+    ogSecureFilename = secure_filename(OGFileName)
+    print(f"ogSecureFilename: {ogSecureFilename}", flush=True)
     name_no_type = Path(filename).stem
-    og_name_no_type = Path(OGFileName).stem
     print(f"name_no_type: {name_no_type}", flush=True)
+    og_name_no_type = Path(OGFileName).stem
+    print(f"og_name_no_type: {og_name_no_type}", flush=True)
     file_extension = Path(filename).suffix
     og_file_extension = Path(OGFileName).suffix
+    print(f"og_file_extension: {og_file_extension}", flush=True)
 
-    if f".{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
+    if f"{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
         return jsonify({"error": "Unsupported Media Type"}), 415
-    if f"{file.mimetype}".lower() not in SUPPORTED_FILE_TYPES:
+    if f"{mimetypes.guess_type(ogSecureFilename)[0]}".lower() not in SUPPORTED_FILE_TYPES:
         return jsonify({"error": "Unsupported Media Type"}), 415
     upload_directory = paths['video'] / config['app_config']['public_upload_folder_name']
     if not os.path.exists(upload_directory):
@@ -383,14 +388,18 @@ def upload_video():
     print(f"filename: {file.filename}", flush=True)
     filename = secure_filename(file.filename)
     print(f"secure filename: {filename}", flush=True)
+    ogSecureFilename = secure_filename(OGFileName)
+    print(f"ogSecureFilename: {ogSecureFilename}", flush=True)
     name_no_type = Path(filename).stem
-    og_name_no_type = Path(OGFileName).stem
     print(f"name_no_type: {name_no_type}", flush=True)
+    og_name_no_type = Path(OGFileName).stem
+    print(f"og_name_no_type: {og_name_no_type}", flush=True)
     file_extension = Path(filename).suffix
     og_file_extension = Path(OGFileName).suffix
-    if f".{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
-        return jsonify({"error": f"Unsupported Media Type: .{og_file_extension}"}), 415
-    if f"{file.mimetype}".lower() not in SUPPORTED_FILE_TYPES:
+    print(f"og_file_extension: {og_file_extension}", flush=True)
+    if f"{og_file_extension}".lower() not in SUPPORTED_FILE_EXTENSIONS:
+        return jsonify({"error": f"Unsupported Media Type: {og_file_extension}"}), 415
+    if f"{mimetypes.guess_type(ogSecureFilename)[0]}".lower() not in SUPPORTED_FILE_TYPES:
         return jsonify({"error": f"Unsupported Media Type: {file.mimetype}"}), 415
     upload_directory = paths['video'] / config['app_config']['admin_upload_folder_name']
     if not os.path.exists(upload_directory):
