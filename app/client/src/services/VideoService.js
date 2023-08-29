@@ -61,7 +61,7 @@ const service = {
     console.log("uploading");
     const file = inputformData.get('file');
     const FileName = file.name;
-    const chunkSize = 20 * 1024 * 1024; // 10MB chunk size (adjust as needed)
+    const chunkSize = 20 * 1024 * 1024; // 20MB chunk size (adjust as needed)
     const fileSize = file.size;
     const totalChunks = Math.ceil(fileSize / chunkSize);
     const uploadToken = generateUploadToken(); // Function to generate a unique upload token
@@ -119,7 +119,7 @@ const service = {
     console.log("uploading");
     const file = inputformData.get('file');
     const FileName = file.name;
-    const chunkSize = 95 * 1024 * 1024; // 10MB chunk size (adjust as needed)
+    const chunkSize = 20 * 1024 * 1024; // 20MB chunk size (adjust as needed)
     const fileSize = file.size;
     const totalChunks = Math.ceil(fileSize / chunkSize);
     const uploadToken = generateUploadToken(); // Function to generate a unique upload token
